@@ -1,5 +1,5 @@
 
-# Blackout Simulation: Assignment 1
+# Blackout Simulation
 
 This project simulates the interaction of devices and satellites in a networked environment, showcasing Object-Oriented Programming (OOP) principles and robust software design. The simulation supports file transfers, entity movement, and dynamic range calculations.
 
