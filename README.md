@@ -110,4 +110,4 @@ curl -X GET http://localhost:4567/state
 
 ## Acknowledgments
 
-This project was developed as part of COMP2511 Assignment 1 at UNSW.
+This project was developed as part of Assignment 1 for the COMP2511 course at UNSW. Special thanks to the course for providing valuable learning resources and support, which helped us understand and master the core concepts and practices of Object-Oriented Programming.
