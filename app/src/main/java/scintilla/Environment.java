@@ -16,7 +16,9 @@ public class Environment {
         if (port != null)
             return port;
         try {
-            return port = Integer.parseInt(System.getenv(PREFIX + "port"));
+            String configured = System.getenv(PREFIX + "PORT");
+            if (configured == null) configured = System.getenv(PREFIX + "port");
+            return port = Integer.parseInt(configured);
         } catch (Exception e) {
             return port = 4567;
         }
