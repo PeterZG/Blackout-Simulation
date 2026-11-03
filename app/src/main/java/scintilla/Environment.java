@@ -8,7 +8,7 @@ public class Environment {
     private static volatile Boolean securable = null;
 
     public static final synchronized String getIPAddress() {
-        return (ipAddress == null && (ipAddress = System.getenv(PREFIX + "ADDRESS")) == null) ? ipAddress = "0.0.0.0"
+        return (ipAddress == null && (ipAddress = System.getenv(PREFIX + "ADDRESS")) == null) ? ipAddress = "127.0.0.1"
                 : ipAddress;
     }
 

@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import unsw.blackout.FileTransferException.VirtualFileAlreadyExistsException;
+import unsw.blackout.FileTransferException.VirtualFileNoBandwidthException;
 import unsw.blackout.FileTransferException.VirtualFileNotFoundException;
 import unsw.item.Device;
 import unsw.item.Entity;
@@ -24,111 +25,108 @@ import unsw.utils.MathsHelper;
  * signatures
  */
 public class BlackoutController {
-    private List<Device> deviceList = new ArrayList<>();
-    private List<Satellite> satelliteList = new ArrayList<>();
-    private List<Transfer> transferList = new ArrayList<>();
+    private final List<Device> deviceList = new ArrayList<>();
+    private final List<Satellite> satelliteList = new ArrayList<>();
+    private final List<Transfer> transferList = new ArrayList<>();
+    private final List<Slope> slopes = new ArrayList<>();
 
     public void createDevice(String deviceId, String type, Angle position) {
-        // TODO: Task 1a)
-        deviceList.add(Device.createDevice(deviceId, type, position));
+        createDevice(deviceId, type, position, false);
     }
 
     public void removeDevice(String deviceId) {
-        // TODO: Task 1b)
+        cancelTransfersFor(deviceId);
         deviceList.removeIf(device -> device.getId() != null && device.getId().equals(deviceId));
     }
 
     public void createSatellite(String satelliteId, String type, double height, Angle position) {
-        // TODO: Task 1c)
+        ensureUniqueId(satelliteId);
+        validatePosition(position);
+        validateHeight(height);
+        if (!List.of("StandardSatellite", "RelaySatellite", "TeleportingSatellite").contains(type)) {
+            throw new IllegalArgumentException("Choose a supported satellite type");
+        }
         satelliteList.add(Satellite.createSatellite(satelliteId, type, height, position));
     }
 
     public void removeSatellite(String satelliteId) {
-        // TODO: Task 1d)
+        cancelTransfersFor(satelliteId);
         satelliteList.removeIf(s -> s.getId() != null && s.getId().equals(satelliteId));
     }
 
     public List<String> listDeviceIds() {
-        // TODO: Task 1e)
         return deviceList.stream().map(e -> e.getId()).collect(Collectors.toList());
     }
 
     public List<String> listSatelliteIds() {
-        // TODO: Task 1f)
         return satelliteList.stream().map(e -> e.getId()).collect(Collectors.toList());
     }
 
     public void addFileToDevice(String deviceId, String filename, String content) {
-        // TODO: Task 1g)
-        deviceList.stream().filter(e -> e.getId().equals(deviceId)).forEach(e -> e.addFile(filename, content));
+        Entity device = requireEntity(deviceId);
+        validateFile(filename, content);
+        if (!(device instanceof Device)) {
+            throw new IllegalArgumentException("Files can only be added directly to a device");
+        }
+        if (device.getFile(filename) != null) {
+            throw new IllegalArgumentException("This file already exists. Edit it or choose a different name");
+        }
+        device.addFile(filename, content);
     }
 
     public EntityInfoResponse getInfo(String id) {
-        // TODO: Task 1h)
         Entity entity = getEntityById(id);
         return entity == null ? null : entity.toInfoResponse();
     }
 
     public void simulate() {
-        // TODO: Task 2a)
-        // System.out.println("simulate ...2");
         satelliteList.forEach(s -> s.move());
-        deviceList.forEach(s -> s.move());
+        deviceList.forEach(device -> device.move(slopes));
 
         List<Transfer> completed = new ArrayList<>();
+        List<Transfer> interrupted = new ArrayList<>();
 
-        for (Satellite s : satelliteList) {
-            for (Transfer t : transferList) {
-                if (t.isFrom(s.getId())) {
-                    int transferBandwidth = s.getBandwidthSend() / getSendCount(s.getId());
-                    transferFile(completed, t, transferBandwidth);
-                }
+        for (Transfer transfer : transferList) {
+            if (!canCommunicate(transfer.getFrom(), transfer.getTo())) {
+                transfer.getTo().removeFile(transfer.getDest().getName());
+                interrupted.add(transfer);
+                continue;
+            }
 
-                if (t.isTo(s.getId())) {
-                    int transferBandwidth = s.getBandwidthSend() / getReceiveCount(s.getId());
-                    transferFile(completed, t, transferBandwidth);
-                }
+            int bandwidth = Integer.MAX_VALUE;
+            if (transfer.getFrom() instanceof Satellite) {
+                Satellite source = (Satellite) transfer.getFrom();
+                bandwidth = Math.min(bandwidth,
+                        source.getBandwidthSend() / getSendCount(source.getId()));
+            }
+            if (transfer.getTo() instanceof Satellite) {
+                Satellite destination = (Satellite) transfer.getTo();
+                bandwidth = Math.min(bandwidth,
+                        destination.getBandwidthReceive() / getReceiveCount(destination.getId()));
+            }
+            if (bandwidth > 0) {
+                advanceFileTransfer(completed, transfer, bandwidth);
             }
         }
-        // remove completed transfer
+
         transferList.removeAll(completed);
-
-        List<Transfer> outRange = new ArrayList<>();
-        transferList.stream().filter(e -> !inRange(e.getFrom(), e.getTo())).forEach(e -> {
-            if (!e.getDest().getCompleted()) {
-                e.getTo().removeFile(e.getDest().getName());
-            }
-            outRange.add(e);
-        });
-        transferList.removeAll(outRange);
+        transferList.removeAll(interrupted);
     }
 
-    /**
-     * transfer file
-     * @param completed
-     * @param t
-     * @param transferBandwidth
-     */
-    private void transferFile(List<Transfer> completed, Transfer t, int transferBandwidth) {
-        int size = t.getSrc().getSize();
-        FileItem dest = t.getDest();
-
-        int transfer = dest.getTransfered() + transferBandwidth;
-        if (transfer >= size) {
-            transfer = size;
-        }
-        dest.setTransfered(transfer);
-        dest.setContent(t.getSrc().getContent().substring(0, transfer));
-        if (dest.getTransfered() >= size) {
-            dest.setCompleted(true);
-            completed.add(t);
+    /** Copy one minute's character allowance and defer removal until iteration finishes. */
+    private void advanceFileTransfer(List<Transfer> completed, Transfer transfer, int charactersPerMinute) {
+        int fileSize = transfer.getSrc().getSize();
+        FileItem destination = transfer.getDest();
+        int receivedCharacters = Math.min(fileSize, destination.getTransfered() + charactersPerMinute);
+        destination.setTransfered(receivedCharacters);
+        destination.setContent(transfer.getSrc().getContent().substring(0, receivedCharacters));
+        if (receivedCharacters >= fileSize) {
+            destination.setCompleted(true);
+            completed.add(transfer);
         }
     }
 
-    /**
-     * Simulate for the specified number of minutes. You shouldn't need to modify
-     * this function.
-     */
+    /** Advance the model by the requested number of whole simulation minutes. */
     public void simulate(int numberOfMinutes) {
         for (int i = 0; i < numberOfMinutes; i++) {
             simulate();
@@ -136,7 +134,6 @@ public class BlackoutController {
     }
 
     public List<String> communicableEntitiesInRange(String id) {
-        // TODO: Task 2 b)
         List<String> list = new ArrayList<>();
         if (id == null) {
             return list;
@@ -149,7 +146,8 @@ public class BlackoutController {
                         addIfNotExist(list, e.getId());
 
                         if (e instanceof RelaySatellite) {
-                            satelliteList.stream().filter(e1 -> e1.canSupport(src.getType()) && isVisible(e1, e))
+                            satelliteList.stream().filter(e1 -> e1.canSupport(src.getType())
+                                    && inRange(e, e1) && isVisible(e1, e))
                                     .forEach(e1 -> {
                                         addIfNotExist(list, e1.getId());
                                     });
@@ -158,7 +156,8 @@ public class BlackoutController {
         } else {
             Optional<Satellite> sate = satelliteList.stream().filter(e -> e.getId().equals(id)).findFirst();
             sate.ifPresent(s -> {
-                satelliteList.stream().filter(e -> !id.equals(e.getId()) && isVisible(s, e)).forEach(e -> {
+                satelliteList.stream().filter(e -> !id.equals(e.getId()) && inRange(s, e) && isVisible(s, e))
+                        .forEach(e -> {
                     addIfNotExist(list, e.getId());
                     if (e instanceof RelaySatellite) {
                         deviceList.stream().filter(d -> inRange(e, d) && isVisible(e, d) && s.canSupport(d.getType()))
@@ -173,18 +172,30 @@ public class BlackoutController {
     }
 
     public void sendFile(String fileName, String fromId, String toId) throws FileTransferException {
-        // TODO: Task 2 c)
         if (fileName == null || fromId == null || toId == null) {
             throw new FileTransferException("Empty input");
         }
         Entity from = getEntityById(fromId);
+        Entity to = getEntityById(toId);
+        if (from == null || to == null) {
+            throw new FileTransferException("Unknown source or destination entity");
+        }
+        if (from == to) {
+            throw new FileTransferException("Source and destination must be different entities");
+        }
+        if (!canCommunicate(from, to)) {
+            throw new FileTransferException("Entities are not currently communicable");
+        }
         FileItem file = from.getCompleteFile(fileName);
         if (file == null) {
             throw new VirtualFileNotFoundException(fileName);
         }
-        Entity to = getEntityById(toId);
         if (to.getFile(fileName) != null) {
             throw new VirtualFileAlreadyExistsException(fileName);
+        }
+        if (from instanceof Satellite
+                && getSendCount(fromId) >= ((Satellite) from).getBandwidthSend()) {
+            throw new VirtualFileNoBandwidthException(fromId);
         }
 
         to.receiveFile(fileName, file.getContent());
@@ -199,15 +210,88 @@ public class BlackoutController {
     }
 
     public void createDevice(String deviceId, String type, Angle position, boolean isMoving) {
-        // createDevice(deviceId, type, position);
-        // TODO: Task 3
+        ensureUniqueId(deviceId);
+        validatePosition(position);
+        if (!List.of("HandheldDevice", "LaptopDevice", "DesktopDevice").contains(type)) {
+            throw new IllegalArgumentException("Choose a supported device type");
+        }
         deviceList.add(Device.createDevice(deviceId, type, position, isMoving));
     }
 
     public void createSlope(int startAngle, int endAngle, int gradient) {
-        // TODO: Task 3
-        // If you are not completing Task 3 you can leave this method blank :)
-        Slope.createSlope(startAngle, endAngle, gradient);
+        if (startAngle < 0 || endAngle > 359 || startAngle >= endAngle) {
+            throw new IllegalArgumentException("Slope angles must satisfy 0 ≤ start < end ≤ 359");
+        }
+        slopes.add(new Slope(startAngle, endAngle, gradient));
+    }
+
+    /** Reposition without replacing an entity or losing its completed files. */
+    public void updateEntity(String id, Angle position, double height) {
+        Entity entity = requireEntity(id);
+        validatePosition(position);
+        if (entity instanceof Satellite) validateHeight(height);
+        cancelTransfersFor(id);
+        entity.setPosition(position);
+        if (entity instanceof Satellite) {
+            entity.setHeight(height);
+            entity.setAngularVelocity(entity.getVelocity() / height);
+        }
+    }
+
+    public void updateDeviceFile(String deviceId, String filename, String content) {
+        Entity device = requireEntity(deviceId);
+        validateFile(filename, content);
+        if (!(device instanceof Device) || device.getCompleteFile(filename) == null) {
+            throw new IllegalArgumentException("Only a completed device file can be edited");
+        }
+        if (transferList.stream().anyMatch(transfer -> transfer.isFrom(deviceId)
+                && transfer.getSrc().getName().equals(filename))) {
+            throw new IllegalArgumentException("Wait for this file's active transfers before editing");
+        }
+        FileItem file = device.getFile(filename);
+        file.setContent(content);
+        file.setSize(content.length());
+        file.setTransfered(content.length());
+    }
+
+    /** Cancels this file's transfers and removes unfinished destination copies. */
+    public void removeFile(String entityId, String filename) {
+        Entity entity = requireEntity(entityId);
+        if (entity.getFile(filename) == null) throw new IllegalArgumentException("File not found");
+        List<Transfer> cancelled = transferList.stream().filter(transfer ->
+                (transfer.isFrom(entityId) && transfer.getSrc().getName().equals(filename))
+                || (transfer.isTo(entityId) && transfer.getDest().getName().equals(filename)))
+                .collect(Collectors.toList());
+        cancelled.forEach(transfer -> transfer.getTo().removeFile(transfer.getDest().getName()));
+        transferList.removeAll(cancelled);
+        entity.removeFile(filename);
+    }
+
+    private Entity requireEntity(String id) {
+        Entity entity = getEntityById(id);
+        if (entity == null) throw new IllegalArgumentException("Entity not found");
+        return entity;
+    }
+
+    private void validatePosition(Angle position) {
+        if (position == null || !Double.isFinite(position.toRadians())) {
+            throw new IllegalArgumentException("Position must be a finite angle");
+        }
+    }
+
+    private void validateHeight(double height) {
+        if (!Double.isFinite(height) || height <= MathsHelper.RADIUS_OF_JUPITER) {
+            throw new IllegalArgumentException("Orbital radius must be above Jupiter's surface");
+        }
+    }
+
+    private void validateFile(String filename, String content) {
+        if (filename == null || filename.isBlank() || filename.length() > 80) {
+            throw new IllegalArgumentException("File name must contain 1–80 characters");
+        }
+        if (content == null || content.length() > 100000) {
+            throw new IllegalArgumentException("File content must contain at most 100,000 characters");
+        }
     }
 
     public Entity getEntityById(String id) {
@@ -246,5 +330,26 @@ public class BlackoutController {
 
     private boolean inRange(Entity e1, Entity e2) {
         return getDistance(e1, e2) <= e1.getRange();
+    }
+
+    private boolean canCommunicate(Entity from, Entity to) {
+        return communicableEntitiesInRange(from.getId()).contains(to.getId());
+    }
+
+    private void ensureUniqueId(String id) {
+        if (id == null || id.isBlank() || id.length() > 80) {
+            throw new IllegalArgumentException("Entity ID must contain 1–80 characters");
+        }
+        if (getEntityById(id) != null) {
+            throw new IllegalArgumentException("Entity ID already exists: " + id);
+        }
+    }
+
+    private void cancelTransfersFor(String entityId) {
+        List<Transfer> cancelled = transferList.stream()
+                .filter(transfer -> transfer.isFrom(entityId) || transfer.isTo(entityId))
+                .collect(Collectors.toList());
+        cancelled.forEach(transfer -> transfer.getTo().removeFile(transfer.getDest().getName()));
+        transferList.removeAll(cancelled);
     }
 }

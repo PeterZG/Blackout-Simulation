@@ -1,0 +1,15 @@
+{
+  "name": "blackout-browser-checks",
+  "private": true,
+  "scripts": {
+    "build": "esbuild app/src/main/resources/app/mission-control.js --bundle --format=esm --target=es2022 --minify --sourcemap --outfile=app/build/generated/frontend/app/mission-control.bundle.js",
+    "test:browser": "node scripts/browser-check.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.62.1"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  }
+}

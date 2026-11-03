@@ -56,20 +56,20 @@ public class Satellite extends Entity  {
     public void receiveFile(String filename, String content) throws FileTransferException {
 
         int transferCount = getFiles().stream().filter(e -> !e.getCompleted()).collect(Collectors.toList()).size();
-        if (transferCount == getBandwidthReceive()) {
+        if (transferCount >= getBandwidthReceive()) {
             throw new VirtualFileNoBandwidthException(getId());
         }
 
-        if (getFiles().size() == getMaxFile()) {
+        if (getFiles().size() >= getMaxFile()) {
             throw new VirtualFileNoStorageSpaceException("Max Files Reached");
         }
 
         int totalSize = 0;
         for (FileItem file : getFiles()) {
-            totalSize += file.getTransfered();
+            totalSize += file.getSize();
         }
 
-        if (totalSize >= getMaxStore()) {
+        if (content == null || totalSize + content.length() > getMaxStore()) {
             throw new VirtualFileNoStorageSpaceException("Max Storage Reached");
         }
 

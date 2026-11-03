@@ -1,5 +1,6 @@
 package unsw.item;
 
+import java.util.List;
 import unsw.utils.MathsHelper;
 
 import unsw.utils.Angle;
@@ -32,8 +33,15 @@ public class Device extends Entity {
 
     @Override
     public void move() {
+        move(List.of());
+    }
+
+    public void move(List<Slope> slopes) {
         super.move();
-        Slope slope = Slope.inSlope(getPosition().toDegrees());
+        double angle = getPosition().toDegrees();
+        Slope slope = slopes.stream()
+                .filter(candidate -> angle >= candidate.getStart() && angle <= candidate.getEnd())
+                .findFirst().orElse(null);
         if (slope == null) {
             setHeight(MathsHelper.RADIUS_OF_JUPITER);
         } else {

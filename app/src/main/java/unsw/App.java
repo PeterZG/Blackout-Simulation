@@ -22,21 +22,15 @@ import java.util.stream.Collectors;
 import scintilla.Scintilla;
 
 public class App {
-    private static volatile Map<String, BlackoutController> sessionStates = new HashMap<>();
-
     private static synchronized BlackoutController getBlackoutController(Request request) {
-        String session = request.session().id();
-        if (session == null) {
-            throw new RuntimeException("No State found");
+        spark.Session session = request.session(true);
+        session.maxInactiveInterval(3600);
+        BlackoutController controller = session.attribute("simulation");
+        if (controller == null) {
+            controller = new BlackoutController();
+            session.attribute("simulation", controller);
         }
-
-        if (sessionStates.containsKey(session)) {
-            return sessionStates.get(session);
-        } else {
-            BlackoutController bc = new BlackoutController();
-            sessionStates.put(session, bc);
-            return bc;
-        }
+        return controller;
     }
 
     public static void main(String[] args) throws Exception {
@@ -49,10 +43,18 @@ public class App {
         gsonBuilder.registerTypeAdapter(Angle.class, serializer);
         Gson gson = gsonBuilder.create();
 
-        Spark.after((request, response) -> {
-            response.header("Access-Control-Allow-Origin", "*");
-            response.header("Access-Control-Allow-Methods", "*");
-            response.header("Access-Control-Allow-Headers", "*");
+        Spark.before("/api/*", (request, response) -> {
+            response.type("application/json; charset=utf-8");
+            String origin = request.headers("Origin");
+            if (origin != null && !origin.equals(request.scheme() + "://" + request.host())) {
+                Spark.halt(403, gson.toJson(Map.of("error", "Use the simulator from its own local address")));
+            }
+        });
+        Spark.exception(IllegalArgumentException.class, (exception, request, response) -> {
+            response.status(400);
+            response.type("application/json; charset=utf-8");
+            response.body(gson.toJson(Map.of("error", exception.getMessage() == null
+                    ? "Check the request parameters" : exception.getMessage())));
         });
 
         Spark.get("/", (request, response) -> {
@@ -63,9 +65,9 @@ public class App {
         Spark.put("/api/device/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                Angle position = Angle.fromRadians(Double.parseDouble(request.queryParams("position")));
-                boolean isMoving = Boolean.parseBoolean(request.queryParams("isMoving"));
-                bc.createDevice(request.queryParams("deviceId"), request.queryParams("type"), position, isMoving);
+                Angle position = readPosition(request);
+                boolean isMoving = SimulationInput.movingDevice(request.queryParams("isMoving"));
+                bc.createDevice(required(request, "deviceId"), required(request, "type"), position, isMoving);
                 return "";
             }
         }, gson::toJson);
@@ -73,7 +75,9 @@ public class App {
         Spark.delete("/api/device/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                bc.removeDevice(request.queryParams("deviceId"));
+                String id = required(request, "deviceId");
+                if (!bc.listDeviceIds().contains(id)) throw new IllegalArgumentException("Device not found");
+                bc.removeDevice(id);
                 return "";
             }
         }, gson::toJson);
@@ -81,9 +85,9 @@ public class App {
         Spark.put("/api/satellite/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                Angle position = Angle.fromRadians(Double.parseDouble(request.queryParams("position")));
-                double height = Double.parseDouble(request.queryParams("height"));
-                bc.createSatellite(request.queryParams("satelliteId"), request.queryParams("type"), height, position);
+                Angle position = readPosition(request);
+                double height = readRadius(request);
+                bc.createSatellite(required(request, "satelliteId"), required(request, "type"), height, position);
                 return "";
             }
         }, gson::toJson);
@@ -91,7 +95,9 @@ public class App {
         Spark.delete("/api/satellite/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                bc.removeSatellite(request.queryParams("satelliteId"));
+                String id = required(request, "satelliteId");
+                if (!bc.listSatelliteIds().contains(id)) throw new IllegalArgumentException("Satellite not found");
+                bc.removeSatellite(id);
                 return "";
             }
         }, gson::toJson);
@@ -99,18 +105,54 @@ public class App {
         Spark.get("/api/entity/info/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                return bc.getInfo(request.queryParams("id"));
+                EntityInfoResponse entity = bc.getInfo(required(request, "id"));
+                if (entity == null) Spark.halt(404, gson.toJson(Map.of("error", "Entity not found")));
+                return entity;
             }
         }, gson::toJson);
 
         Spark.post("/api/device/file/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                bc.addFileToDevice(request.queryParams("deviceId"), request.queryParams("fileName"), request.body());
+                bc.addFileToDevice(required(request, "deviceId"), required(request, "fileName"), request.body());
                 return "";
             }
         }, gson::toJson);
 
+        Spark.put("/api/entity/", "application/json", (request, response) -> {
+            BlackoutController controller = getBlackoutController(request);
+            synchronized (controller) {
+                String id = required(request, "id");
+                EntityInfoResponse entity = controller.getInfo(id);
+                if (entity == null) throw new IllegalArgumentException("Entity not found");
+                double radius = entity.getType().endsWith("Satellite") ? readRadius(request) : entity.getHeight();
+                controller.updateEntity(id, readPosition(request), radius);
+                return "";
+            }
+        }, gson::toJson);
+
+        Spark.put("/api/device/file/", "application/json", (request, response) -> {
+            BlackoutController controller = getBlackoutController(request);
+            synchronized (controller) {
+                controller.updateDeviceFile(required(request, "deviceId"),
+                        required(request, "fileName"), request.body());
+                return "";
+            }
+        }, gson::toJson);
+
+        Spark.delete("/api/entity/file/", "application/json", (request, response) -> {
+            BlackoutController controller = getBlackoutController(request);
+            synchronized (controller) {
+                controller.removeFile(required(request, "id"), required(request, "fileName"));
+                return "";
+            }
+        }, gson::toJson);
+
+        registerReadAndTransferRoutes(gson);
+        Scintilla.start();
+    }
+
+    private static void registerReadAndTransferRoutes(Gson gson) {
         Spark.get("/api/device/all/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
@@ -132,7 +174,9 @@ public class App {
         Spark.get("/api/entity/entitiesInRange/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                return bc.communicableEntitiesInRange(request.queryParams("id")).stream().map(e -> bc.getInfo(e))
+                String id = required(request, "id");
+                if (bc.getInfo(id) == null) throw new IllegalArgumentException("Entity not found");
+                return bc.communicableEntitiesInRange(id).stream().map(e -> bc.getInfo(e))
                         .collect(Collectors.toList());
             }
         }, gson::toJson);
@@ -141,11 +185,12 @@ public class App {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
                 try {
-                    bc.sendFile(request.queryParams("fileName"), request.queryParams("fromId"),
-                            request.queryParams("toId"));
+                    bc.sendFile(required(request, "fileName"), required(request, "fromId"),
+                            required(request, "toId"));
                     return "";
                 } catch (FileTransferException ex) {
-                    return ex.getClass().getSimpleName() + ":" + ex.getMessage();
+                    response.status(409);
+                    return Map.of("error", ex.getMessage());
                 }
             }
         }, gson::toJson);
@@ -153,9 +198,9 @@ public class App {
         Spark.post("/api/createSlope/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                bc.createSlope(Integer.parseInt(request.queryParams("startAngle")),
-                        Integer.parseInt(request.queryParams("endAngle")),
-                        Integer.parseInt(request.queryParams("gradient")));
+                bc.createSlope(Integer.parseInt(required(request, "startAngle")),
+                        Integer.parseInt(required(request, "endAngle")),
+                        Integer.parseInt(required(request, "gradient")));
                 return "";
             }
         }, gson::toJson);
@@ -163,14 +208,7 @@ public class App {
         Spark.post("/api/simulate/", "application/json", (request, response) -> {
             BlackoutController bc = getBlackoutController(request);
             synchronized (bc) {
-                int n;
-                try {
-                    n = Integer.parseInt(request.queryParamOrDefault("n", "1"));
-                } catch (NumberFormatException e) {
-                    n = 1;
-                }
-                if (n < 1)
-                    n = 1;
+                int n = SimulationInput.minutes(request.queryParams("n"));
 
                 List<Map<String, EntityInfoResponse>> results = new ArrayList<>();
                 for (int i = 0; i < n; i++) {
@@ -186,6 +224,19 @@ public class App {
             }
         }, gson::toJson);
 
-        Scintilla.start();
+    }
+
+    private static String required(Request request, String name) {
+        String value = request.queryParams(name);
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("Missing " + name);
+        return value.trim();
+    }
+
+    private static Angle readPosition(Request request) {
+        return SimulationInput.position(required(request, "position"));
+    }
+
+    private static double readRadius(Request request) {
+        return SimulationInput.orbitalRadius(required(request, "height"));
     }
 }

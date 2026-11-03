@@ -1,1 +1,351 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><title>Back to Blackout</title><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><meta name="HandheldFriendly" content="True"/><meta name="MobileOptimized" content="320"/><meta http-equiv="cleartype" content="on"/><script defer="defer" src="main.js"></script><link href="main.css" rel="stylesheet"></head><body><img id="jupiter_uv" style="display:none" src="f1c882a85791854baabf.jpeg"/></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b111b" />
+    <meta
+      name="description"
+      content="An interactive satellite communications simulator. Create a network, inspect its links and follow file transfers around Jupiter."
+    />
+    <title>Blackout — Orbital communications</title>
+    <link rel="icon" type="image/svg+xml" href="assets/orbital-mark.svg" />
+    <link rel="stylesheet" href="mission-control.css" />
+    <script type="module" src="mission-control.bundle.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to simulation</a>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Blackout home"
+        ><svg viewBox="0 0 40 40" aria-hidden="true">
+          <circle cx="20" cy="20" r="9" />
+          <ellipse
+            cx="20"
+            cy="20"
+            rx="19"
+            ry="10"
+            transform="rotate(-40 20 20)"
+          />
+          <circle cx="34" cy="8" r="2.5" fill="currentColor" /></svg
+        ><span>BLACKOUT<small>ORBITAL COMMUNICATIONS</small></span></a
+      >
+      <div class="header-right">
+        <span class="session-status"><i></i> LOCAL SESSION</span
+        ><button class="button button-quiet" id="help-button" type="button">
+          Flight manual <span aria-hidden="true">↗</span>
+        </button>
+      </div>
+    </header>
+    <main id="main-content" tabindex="-1">
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow">JUPITER / NETWORK SIMULATION</p>
+          <h1>Mission control</h1>
+          <p class="page-description">
+            Build a network. Test a connection. Watch your signal travel.
+          </p>
+        </div>
+        <div class="simulation-clock">
+          <span>TIME ADVANCED THIS SESSION</span
+          ><strong id="elapsed-time">00:00</strong
+          ><small>HOURS : MINUTES</small>
+        </div>
+      </section>
+      <div class="workspace-layout">
+        <section class="orbital-console" aria-labelledby="scene-heading">
+          <div class="console-toolbar">
+            <h2 id="scene-heading">
+              <span class="status-square"></span> Orbital view
+            </h2>
+            <div class="scene-switches">
+              <label
+                ><input id="show-orbits" type="checkbox" checked /> Orbit
+                guides</label
+              ><button
+                id="motion-toggle"
+                class="text-button"
+                type="button"
+                aria-pressed="false"
+              >
+                Pause visual motion
+              </button>
+            </div>
+          </div>
+          <div class="scene-container">
+            <div class="scene-viewport">
+              <canvas
+                id="orbital-canvas"
+                tabindex="0"
+                aria-label="Interactive 3D Jupiter. Drag to orbit, scroll or pinch to zoom. Keyboard: arrow keys rotate, plus and minus zoom, Home resets. Network entities can also be selected from the list."
+                aria-describedby="camera-help"
+              ></canvas>
+              <div class="scene-coordinates">
+                <span>LIVE 3D VIEW · 360°</span
+                ><span>JUPITER RADIUS / 69,911 KM</span>
+              </div>
+            </div>
+            <div class="camera-controls" aria-label="3D camera controls">
+              <p id="camera-help">Drag to orbit · Scroll or pinch to zoom</p>
+              <div class="camera-buttons">
+                <button
+                  type="button"
+                  data-camera="left"
+                  aria-label="Rotate camera left"
+                >
+                  ← Rotate
+                </button>
+                <button
+                  type="button"
+                  data-camera="right"
+                  aria-label="Rotate camera right"
+                >
+                  Rotate →
+                </button>
+                <button
+                  type="button"
+                  data-camera="up"
+                  aria-label="Tilt camera up"
+                >
+                  Tilt ↑
+                </button>
+                <button
+                  type="button"
+                  data-camera="down"
+                  aria-label="Tilt camera down"
+                >
+                  Tilt ↓
+                </button>
+                <button type="button" data-camera="in" aria-label="Zoom in">
+                  ＋ Zoom
+                </button>
+                <button type="button" data-camera="out" aria-label="Zoom out">
+                  − Zoom
+                </button>
+                <button type="button" data-camera="top">Top view</button>
+                <button type="button" data-camera="reset">Reset view</button>
+                <button type="button" id="auto-orbit" aria-pressed="false">
+                  Auto orbit
+                </button>
+              </div>
+              <p id="scene-status" role="status" hidden></p>
+            </div>
+            <div class="scene-empty" id="scene-empty">
+              <span>YOUR ORBIT STARTS HERE</span>
+              <p>Add a satellite and a device to establish your first link.</p>
+              <button
+                class="button button-primary"
+                type="button"
+                data-action="satellite"
+              >
+                + Add satellite
+              </button>
+            </div>
+            <div class="scene-key">
+              <span><i class="satellite-dot"></i> Satellite</span
+              ><span><i class="device-dot"></i> Device</span
+              ><span><i class="link-dot"></i> In range</span>
+            </div>
+          </div>
+          <div class="time-controls">
+            <span class="time-label">ADVANCE TIME</span>
+            <div class="step-buttons">
+              <button type="button" class="button button-step" data-minutes="1">
+                +1 min</button
+              ><button
+                type="button"
+                class="button button-step"
+                data-minutes="5"
+              >
+                +5 min</button
+              ><button
+                type="button"
+                class="button button-step"
+                data-minutes="60"
+              >
+                +1 hour
+              </button>
+            </div>
+            <button
+              id="play-button"
+              class="button button-play"
+              type="button"
+              aria-pressed="false"
+            >
+              <span aria-hidden="true">▶</span> Run simulation
+            </button>
+          </div>
+          <p class="time-note">
+            Run advances the actual model by one minute per second. Visual
+            motion never changes entity positions.
+          </p>
+        </section>
+        <aside class="network-panel" aria-labelledby="network-heading">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">CONNECTED ASSETS</span>
+              <h2 id="network-heading">
+                Your network <span id="entity-count">0</span>
+              </h2>
+            </div>
+            <button
+              id="refresh-button"
+              class="icon-button"
+              type="button"
+              aria-label="Refresh network"
+            >
+              ↻
+            </button>
+          </div>
+          <div class="entity-actions">
+            <button
+              type="button"
+              class="button button-primary"
+              data-action="satellite"
+            >
+              + Satellite</button
+            ><button
+              type="button"
+              class="button button-secondary"
+              data-action="device"
+            >
+              + Device
+            </button>
+          </div>
+          <div id="network-feedback" role="status" class="network-feedback">
+            Connecting to the local simulator…
+          </div>
+          <div
+            class="entity-list"
+            id="entity-list"
+            aria-label="Network entities"
+          ></div>
+          <section
+            id="entity-inspector"
+            class="entity-inspector"
+            aria-label="Selected entity details"
+            hidden
+          ></section>
+          <div class="panel-footer">
+            <button id="slope-button" class="text-button" type="button">
+              Configure a device slope <span aria-hidden="true">↗</span>
+            </button>
+            <p>
+              Positions and communication links come from the Java simulation
+              engine.
+            </p>
+          </div>
+        </aside>
+      </div>
+      <section class="activity-panel" aria-labelledby="activity-heading">
+        <div class="activity-title">
+          <h2 id="activity-heading">Activity log</h2>
+          <span>THIS BROWSER SESSION</span>
+        </div>
+        <ol id="activity-list">
+          <li class="activity-empty">Your network actions will appear here.</li>
+        </ol>
+      </section>
+    </main>
+    <footer>
+      <span>BLACKOUT / COMMUNICATIONS LAB</span
+      ><span
+        >Educational simulation · Original engine &amp; supplied assets credited
+        to UNSW contributors.</span
+      >
+    </footer>
+    <dialog id="operation-dialog" aria-labelledby="dialog-title">
+      <form id="operation-form">
+        <div class="dialog-heading">
+          <div>
+            <span class="eyebrow">NETWORK OPERATION</span>
+            <h2 id="dialog-title">Add satellite</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            id="close-dialog"
+            aria-label="Close dialog"
+          >
+            ×
+          </button>
+        </div>
+        <p id="dialog-description" class="dialog-description"></p>
+        <div id="dialog-fields" class="dialog-fields"></div>
+        <p id="dialog-error" class="form-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            class="button button-secondary"
+            id="cancel-dialog"
+          >
+            Cancel</button
+          ><button
+            type="submit"
+            class="button button-primary"
+            id="submit-operation"
+          >
+            Add satellite
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="manual-dialog" aria-labelledby="manual-title">
+      <div class="manual-content">
+        <div class="dialog-heading">
+          <div>
+            <span class="eyebrow">FLIGHT MANUAL</span>
+            <h2 id="manual-title">Your first connection</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            id="close-manual"
+            aria-label="Close flight manual"
+          >
+            ×
+          </button>
+        </div>
+        <div class="manual-steps">
+          <section>
+            <span>01</span>
+            <div>
+              <h3>Add a compatible pair</h3>
+              <p>
+                Create a Handheld device at 0° and a Standard satellite at 0°
+                with a radius of 80,000 km. Radius is measured from Jupiter’s
+                centre.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>02</span>
+            <div>
+              <h3>Put a file on the device</h3>
+              <p>
+                Select the device in Your network, then choose Add file. Enter a
+                file name and a short text payload.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>03</span>
+            <div>
+              <h3>Transfer and advance time</h3>
+              <p>
+                Select Send file, choose your satellite and confirm. Use +1 min
+                to inspect each step, or Run simulation to advance
+                automatically. The file list shows real transfer progress.
+              </p>
+            </div>
+          </section>
+        </div>
+        <p class="manual-note">
+          Changing the visual motion setting only affects scene decoration. The
+          model follows the original satellite, range, storage and bandwidth
+          rules.
+        </p>
+      </div>
+    </dialog>
+    <noscript>Enable JavaScript to run the simulator.</noscript>
+  </body>
+</html>

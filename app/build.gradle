@@ -16,7 +16,7 @@ dependencies {
     implementation group: 'com.google.code.gson', name: 'gson', version: '2.8.9'
     implementation group: 'org.json', name: 'json', version: '20230618'
     implementation group: 'org.reflections', name: 'reflections', version: '0.10.2'
-    implementation group: 'org.slf4j', name: 'slf4j-simple', version: '1.7.+'
+    implementation 'org.slf4j:slf4j-simple:1.7.36'
 
     // Use JUnit Jupiter for testing.
     testImplementation 'org.junit.jupiter:junit-jupiter:5.9.3'
@@ -40,8 +40,31 @@ sourceSets {
     }
 }
 
+def frontendDirectory = rootProject.projectDir
+def npmExecutable = System.getProperty('os.name').toLowerCase().contains('windows') ? 'npm.cmd' : 'npm'
+
+tasks.register('installFrontend', Exec) {
+    workingDir frontendDirectory
+    commandLine npmExecutable, 'ci', '--no-audit', '--no-fund'
+    inputs.files(rootProject.file('package.json'), rootProject.file('package-lock.json'))
+    outputs.file(rootProject.file('node_modules/.package-lock.json'))
+}
+
+tasks.register('buildFrontend', Exec) {
+    dependsOn 'installFrontend'
+    workingDir frontendDirectory
+    commandLine npmExecutable, 'run', 'build'
+    inputs.files(fileTree('src/main/resources/app') { include '*.js' })
+    inputs.files(rootProject.file('package.json'), rootProject.file('package-lock.json'))
+    outputs.dir(layout.buildDirectory.dir('generated/frontend'))
+}
+
 processResources {
+    dependsOn 'buildFrontend'
     duplicatesStrategy = 'include'
+    from(layout.buildDirectory.dir('generated/frontend'))
+    // Ship one browser bundle; the readable modules remain the source of truth.
+    exclude 'app/mission-control.js', 'app/orbital-scene.js', 'app/simulation-api.js'
 }
 
 tasks.named('test') {
@@ -50,11 +73,15 @@ tasks.named('test') {
 }
 
 
-// Apply a specific Java toolchain to ease working on different environments.
+// Compile Java 17-compatible bytecode without forcing Gradle to provision an
+// exact JDK. This keeps the build usable with JDK 17 and newer installations.
 java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
-    }
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
 }
 
 checkstyle {

@@ -3,7 +3,7 @@ package unsw.item;
 import unsw.response.models.FileInfoResponse;
 
 /**
- * Represents a file item, which encapsulates the details of a file .
+ * Text payload and transfer state. Sizes count Java UTF-16 characters, not encoded bytes.
  */
 public class FileItem {
     /**
@@ -17,14 +17,14 @@ public class FileItem {
     private String content;
 
     /**
-     * The total size of the file in bytes.
+     * The total number of characters in the file.
      */
     private int size;
 
     /**
-     * The size of the file that has been transferred in bytes.
+     * Characters received so far while a transfer is incomplete.
      */
-    private int transfered;
+    private int transferredCharacters;
 
     /**
      * Indicates whether the file transfer is completed.
@@ -90,7 +90,7 @@ public class FileItem {
     }
 
     /**
-     * Returns the total size of the file in bytes.
+     * Returns the total character count of the file.
      *
      * @return The file size.
      */
@@ -99,7 +99,7 @@ public class FileItem {
     }
 
     /**
-     * Sets the total size of the file in bytes.
+     * Sets the total size of the file in UTF-16 characters.
      *
      * @param size The new file size.
      */
@@ -108,21 +108,21 @@ public class FileItem {
     }
 
     /**
-     * Returns the size of the file that has been transferred in bytes.
+     * Returns received characters. The original public method name is retained for compatibility.
      *
      * @return The transferred size.
      */
     public int getTransfered() {
-        return transfered;
+        return transferredCharacters;
     }
 
     /**
-     * Sets the size of the file that has been transferred in bytes.
+     * Sets the number of UTF-16 characters received so far.
      *
-     * @param transfered The new transferred size.
+     * @param transferredCharacters The received character count.
      */
-    public void setTransfered(int transfered) {
-        this.transfered = transfered;
+    public void setTransfered(int transferredCharacters) {
+        this.transferredCharacters = transferredCharacters;
     }
 
     /**
